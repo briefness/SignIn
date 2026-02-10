@@ -144,9 +144,43 @@ app.post('/api/checkin', (req, res) => {
     // confirmNew: 用户确认是新人 (强制创建)
     // useExistingPhone: 用户确认是老用户 (使用此 Correct Phone)
     const { name, phone, confirmNew, useExistingPhone } = req.body;
-    if (!name || !phone) return res.status(400).json({ error: '请填写完整信息' });
-
+    
+    // 允许仅传 phone，用于第一步“查询并签到”
+    if (!phone) return res.status(400).json({ error: '请填写手机号' });
+    
     const list = readDB();
+
+    // -----------------------------------------------------
+    // 逻辑 0: 仅有手机号 (第一步尝试)
+    // -----------------------------------------------------
+    // 如果没有传 name，说明是第一步查找
+    if (!name) {
+        const existingUser = list.find(i => i.phone === phone);
+        
+        if (existingUser) {
+            // 找到了！直接帮忙签到
+            if (existingUser.status === 'checked_in') {
+                return res.json({ 
+                    success: false, 
+                    error: `您好 ${existingUser.name}，您于 ${new Date(existingUser.checkInTime).toLocaleTimeString()} 已经签到过了！` 
+                });
+            }
+            
+            // 执行签到
+            existingUser.status = 'checked_in';
+            existingUser.checkInTime = Date.now();
+            writeDB(list);
+            return res.json({ success: true, user: existingUser, isNew: false });
+        } else {
+            // 没找到 -> 告诉前端“需要填写姓名”
+            return res.json({ success: false, needName: true });
+        }
+    }
+    
+    // -----------------------------------------------------
+    // 以下逻辑仅当 name 存在时执行 (第二步：注册或确认)
+    // -----------------------------------------------------
+
 
     // -----------------------------------------------------
     // 逻辑 A: 处理“确认使用现有身份”的情况 (来自前端弹窗确认)
@@ -251,7 +285,11 @@ app.get('/api/tunnel', async (req, res) => {
         const fullUrl = `${currentUrl}/form.html`;
         
         try {
-            const qr = await QRCode.toDataURL(fullUrl);
+            // 允许前端传 url 参数来自定义二维码内容
+            const customUrl = req.query.url; 
+            const finalUrl = customUrl || fullUrl;
+            
+            const qr = await QRCode.toDataURL(finalUrl);
             return res.json({ url: currentUrl, qr });
         } catch (err) {
             console.error('QR Gen Error:', err);

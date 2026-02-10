@@ -27,7 +27,7 @@
         <div class="title">👋 欢迎参加活动</div>
         <div class="subtitle">请填写信息完成签到</div>
         
-        <div class="form-group">
+        <div class="form-group" id="nameGroup" style="display: none;">
             <label class="label">真实姓名</label>
             <input type="text" id="name" class="input" placeholder="请输入真实姓名">
         </div>
@@ -37,7 +37,7 @@
             <input type="tel" id="phone" class="input" placeholder="请输入11位手机号" maxlength="11">
         </div>
         
-        <button class="btn" onclick="submit()">确认签到</button>
+        <button class="btn" id="submitBtn" onclick="submit()">下一步</button>
     </div>
 
     <div class="container success-box" id="successBox">
@@ -59,21 +59,36 @@
 
     <script>
         var currentCandidates = [];
+        var isStepTwo = false; // 是否在等待输入姓名阶段
 
         function submit(extraData) {
-            var name = document.getElementById('name').value.trim();
             var phone = document.getElementById('phone').value.trim();
-            extraData = extraData || {};
+            // 如果是第二步，获取姓名
+            var name = isStepTwo ? document.getElementById('name').value.trim() : '';
 
-            if (!name || phone.length !== 11) {
-                alert('请填写完整的姓名和手机号');
+            // 基础校验
+            if (phone.length !== 11) {
+                alert('请填写正确的11位手机号');
+                return;
+            }
+            if (isStepTwo && !name) {
+                alert('请填写真实姓名');
                 return;
             }
 
-            // ES5 合并对象
-            var payload = { name: name, phone: phone };
-            if (extraData.confirmNew) payload.confirmNew = true;
-            if (extraData.useExistingPhone) payload.useExistingPhone = extraData.useExistingPhone;
+            var payload = { phone: phone };
+            // 如果处于第二步，必须带上 name
+            if (isStepTwo) payload.name = name;
+            
+            // 额外的 confirming 逻辑
+            if (extraData) {
+                for (var key in extraData) payload[key] = extraData[key];
+            }
+
+            var btn = document.getElementById('submitBtn');
+            var originalText = btn.innerText;
+            btn.innerText = '处理中...';
+            btn.disabled = true;
 
             fetch('/api/checkin', {
                 method: 'POST',
@@ -82,17 +97,35 @@
             })
             .then(function(res) { return res.json(); })
             .then(function(data) {
+                btn.innerText = originalText;
+                btn.disabled = false;
+
                 if (data.success) {
+                    // 签到成功
                     document.getElementById('formBox').style.display = 'none';
                     document.getElementById('confirmBox').style.display = 'none';
                     document.getElementById('successBox').style.display = 'block';
-                } else if (data.requiresConfirmation) {
+                } 
+                else if (data.needName) {
+                    // 新逻辑：后端没找到人，要求输入名字
+                    document.getElementById('nameGroup').style.display = 'block';
+                    document.getElementById('name').focus();
+                    btn.innerText = '确认录入并签到';
+                    // 标记状态为第二步
+                    isStepTwo = true;
+                    // 提示用户
+                    alert('未找到您的报名信息，请输入姓名完成现场录入。');
+                }
+                else if (data.requiresConfirmation) {
                     showConfirmation(data.candidates);
-                } else {
-                    alert('签到失败: ' + (data.error || '未知错误'));
+                } 
+                else {
+                    alert('提示: ' + (data.error || '未知错误'));
                 }
             })
             .catch(function(err) { 
+                btn.innerText = originalText;
+                btn.disabled = false;
                 alert('网络错误，请重试'); 
             });
         }
