@@ -69,14 +69,35 @@ app.get('/', (req, res) => {
     }
 });
 
+// ----------------------------------------------------------------------
+// 极简模式：使用内存变量存储数据 (适配 Vercel 无数据库场景)
+// 注意：Vercel Serverless Function 会不定期重启/休眠，
+// 重启后 globalData 会清空。但在实例存活期间（有人访问），数据是存在的。
+// 多个实例间数据不共享（可能会导致数据闪烁），
+// 但这已经是再不连接外部数据库（Redis/Mongo）的情况下，唯一能用的方案了。
+// ----------------------------------------------------------------------
+global.memoryDB = global.memoryDB || []; // 防止热重载清空
+
+// 读写辅助函数 (适配内存)
+const readDB = () => {
+    return global.memoryDB;
+};
+const writeDB = (data) => {
+    global.memoryDB = data;
+    // 如果是本地开发，顺便存一份文件备份，方便调试
+    if (!isVercel) {
+        try { fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)); } catch (e) {}
+    }
+};
+
 // 初始化数据库
-if (!fs.existsSync(DB_FILE)) {
+if (!isVercel && !fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
-
-// 读写辅助函数
-const readDB = () => JSON.parse(fs.readFileSync(DB_FILE));
-const writeDB = (data) => fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+// 本地启动时加载一次
+if (!isVercel && fs.existsSync(DB_FILE)) {
+    try { global.memoryDB = JSON.parse(fs.readFileSync(DB_FILE)); } catch (e) {}
+}
 
 // API: 获取统计
 app.get('/api/stats', (req, res) => {
