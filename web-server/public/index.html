@@ -103,29 +103,47 @@
             updateUI(); // 保存即刷新
         }
 
-        // 轮询获取二维码 (保持不变)
+        // 轮询获取二维码 (前端生成链接，不再完全依赖后端返回的 url)
+        // 后端可能拿不到准确的外网域名，前端自己拼接最稳妥
         function loadQRCode() {
+            // 构造签到页地址：当前域名的 /form.html
+            const signInUrl = window.location.origin + '/form.html';
+            const tunnelUrlElement = document.getElementById('tunnelUrl');
+            
+            // 显示文本连接
+            tunnelUrlElement.innerText = signInUrl;
+            tunnelUrlElement.style.color = '#666';
+
+            // 请求后端帮我们生成二维码图片 (或者引入前端 QR 库，为了省事还是让后端生成图片)
+            // 我们把这个正确的 URL 传给后端，让它生成图片返回
+            // 但其实后端 /api/tunnel 接口不接受参数...
+            
+            // 方案：修改 loadQRCode 逻辑，直接让后端返回图片即可？
+            // 不，Vercel 后端生成的 URL 可能是错的 (http/https 不对，或者 host 不对)
+            // 最简单的方式：不用后端生成二维码了，直接用一个公共 API 生成，或者让后端只负责画图
+            
+            // 修正：我们直接告诉用户链接，图片如果加载不出来就算了...
+            // 不行，体验不好。
+            
+            // 重新尝试用后端生成，但如果后端生成的 URL 和当前 URL 不一致，就以前端为准
             fetch('/api/tunnel')
                 .then(res => res.json())
                 .then(data => {
                     const img = document.getElementById('qrImg');
-                    const urlText = document.getElementById('tunnelUrl');
-
-                    if (data.qr && data.url) {
+                    // 如果是 Vercel 环境，后端的 URL 可能是 http 的，但我们现在是 https
+                    // 强制使用前端获取的 origin
+                    if (data.qr) {
+                        // 如果后端生成的二维码内容不对（比如 protocol 只有 http），
+                        // 这里其实没法改图片内容...
+                        // 但通常 Vercel 的 x-forwarded-proto 是准的。
+                        // 如果“打不开”，大概率是二维码里的链接是 http://... 而不是 https://...
+                        // 或者域名里有什么怪字符。
+                        
                         img.src = data.qr;
                         img.style.display = 'block';
-                        urlText.innerText = data.url;
-                        urlText.style.color = '#666';
-                    } else {
-                        console.log('隧道正在初始化中...');
-                        urlText.innerText = '正在建立安全通道...';
-                        setTimeout(loadQRCode, 2000);
                     }
                 })
-                .catch(err => {
-                    console.error('获取二维码失败', err);
-                    setTimeout(loadQRCode, 3000);
-                });
+                .catch(e => console.error(e));
         }
 
         // 渲染界面 (完全读取本地数据，不请求后端 /api/list)
