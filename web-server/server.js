@@ -221,7 +221,24 @@ app.post('/api/checkin', (req, res) => {
 let tunnelUrl = '';
 let qrCodeData = '';
 
-app.get('/api/tunnel', (req, res) => {
+app.get('/api/tunnel', async (req, res) => {
+    // 适配 Vercel: 直接使用当前域名作为 "穿透地址"
+    if (isVercel) {
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const host = req.headers.host;
+        const currentUrl = `${protocol}://${host}`;
+        const fullUrl = `${currentUrl}/form.html`;
+        
+        try {
+            const qr = await QRCode.toDataURL(fullUrl);
+            return res.json({ url: currentUrl, qr });
+        } catch (err) {
+            console.error('QR Gen Error:', err);
+            return res.status(500).json({ error: 'QR Gen Failed' });
+        }
+    }
+
+    // 本地环境: 返回 SSH 隧道生成的地址
     res.json({ url: tunnelUrl, qr: qrCodeData });
 });
 
