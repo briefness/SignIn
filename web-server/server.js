@@ -14,26 +14,21 @@ const isVercel = process.env.VERCEL === '1';
 const isPkg = typeof process.pkg !== 'undefined';
 
 // 路径配置：
-// 1. Vercel: 使用 /tmp 存储临时数据，使用 process.cwd() 找静态资源 (Vercel 将根目录设为当前工作目录)
-// 2. Pkg: 使用 process.execPath 找可执行文件旁边的资源
-// 3. 开发环境: 使用 __dirname
+// Vercel Serverless Function 运行时，CWD 就是根目录。而 server.js 位于根目录。
+// public 文件夹也位于根目录。
+// 但是 vercel.json 的 includeFiles 是相对于 build 的。
+// 最稳妥的方式：在 Vercel 上，将 process.cwd() 加入 base
 const BASE_DIR = isPkg ? path.dirname(process.execPath) : (isVercel ? process.cwd() : __dirname);
 const PUBLIC_DIR = path.join(BASE_DIR, 'public');
 
 // 调试路径 (部署时查看日志用)
-if (isVercel) {
-    console.log('Vercel Logic Active');
-    console.log('CWD:', process.cwd());
-    console.log('__dirname:', __dirname);
-    console.log('PUBLIC_DIR:', PUBLIC_DIR);
-    // 检查 public 是否存在
-    const fs = require('fs');
-    if (fs.existsSync(PUBLIC_DIR)) {
-        console.log('Public dir exists contents:', fs.readdirSync(PUBLIC_DIR));
-    } else {
-        console.log('Public dir does NOT exist!');
-    }
-}
+console.log('[DEBUG] Environment:', { isVercel, isPkg, PORT });
+console.log('[DEBUG] Paths:', { 
+    cwd: process.cwd(), 
+    __dirname, 
+    BASE_DIR, 
+    PUBLIC_DIR 
+});
 
 // Vercel 文件系统只读，只能写 /tmp
 // 注意：每次部署或实例重启，/tmp 都会清空 -> 符合“阅后即焚”的需求
