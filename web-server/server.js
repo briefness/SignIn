@@ -7,13 +7,22 @@ const localtunnel = require('localtunnel');
 const QRCode = require('qrcode');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// 在 pkg 环境下，需要使用 process.execPath 获取可执行文件所在路径
-// 这样无论在哪启动命令，都能找到旁边的 db.json 和 public
-const BASE_DIR = path.dirname(process.execPath);
-const DB_FILE = path.join(BASE_DIR, 'db.json');
+// 适配 Vercel 环境
+const isVercel = process.env.VERCEL === '1';
+const isPkg = typeof process.pkg !== 'undefined';
+
+// 路径配置：
+// 1. Vercel: 使用 /tmp 存储临时数据 (重启后清空)，使用 process.cwd() 或 __dirname 找静态资源
+// 2. Pkg: 使用 process.execPath 找可执行文件旁边的资源
+// 3. 开发环境: 使用 __dirname
+const BASE_DIR = isPkg ? path.dirname(process.execPath) : __dirname;
 const PUBLIC_DIR = path.join(BASE_DIR, 'public');
+
+// Vercel 文件系统只读，只能写 /tmp
+// 注意：每次部署或实例重启，/tmp 都会清空 -> 符合“阅后即焚”的需求
+const DB_FILE = isVercel ? path.join('/tmp', 'db.json') : path.join(BASE_DIR, 'db.json');
 
 // 中间件
 app.use(cors());
@@ -301,6 +310,9 @@ app.get('/api/export', (req, res) => {
 });
 
 app.listen(PORT, async () => {
-    console.log(`本地服务运行于 http://localhost:${PORT}`);
-    startTunnel();
+    console.log(`服务运行于 http://localhost:${PORT}`);
+    // 只有在非 Vercel 环境下才启动内网穿透
+    if (!isVercel) {
+        startTunnel();
+    }
 });

@@ -1,0 +1,7 @@
+node_modules
+.DS_Store
+dist
+web-server/node_modules
+web-server/uploads
+*.log
+web-server/db.json
