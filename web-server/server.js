@@ -241,7 +241,10 @@ function startTunnel() {
 // 启动服务
 const multer = require('multer');
 const xlsx = require('xlsx');
-const upload = multer({ dest: 'uploads/' });
+
+// Vercel 只有 /tmp 是可写的
+const UPLOAD_DIR = isVercel ? '/tmp' : 'uploads/'; // 确保尾部有斜杠或者 multer 自动处理? multer(dest) 不需要斜杠
+const upload = multer({ dest: isVercel ? '/tmp' : 'uploads/' });
 
 // API: 导入 Excel/CSV
 app.post('/api/import', upload.single('file'), (req, res) => {
@@ -316,3 +319,6 @@ app.listen(PORT, async () => {
         startTunnel();
     }
 });
+
+// 关键：导出 app 供 Vercel Serverless 调用
+module.exports = app;
