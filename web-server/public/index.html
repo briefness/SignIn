@@ -81,7 +81,29 @@
     </div>
 
     <script>
-        // 轮询获取二维码
+        // =========================================================
+        // 核心改动：前端 LocalStorage 接管所有数据
+        // 后端 server.js 仅用于：
+        // 1. 解析 Excel (因为浏览器解析 Excel 比较麻烦，偷懒用后端)
+        // 2. 生成二维码 (同理)
+        // 3. 作为简单的 API Proxy
+        // =========================================================
+
+        const DB_KEY = 'vibe_signin_db_v1';
+        
+        // 获取本地数据
+        function getLocalData() {
+            const raw = localStorage.getItem(DB_KEY);
+            return raw ? JSON.parse(raw) : [];
+        }
+
+        // 保存本地数据
+        function saveLocalData(list) {
+            localStorage.setItem(DB_KEY, JSON.stringify(list));
+            updateUI(); // 保存即刷新
+        }
+
+        // 轮询获取二维码 (保持不变)
         function loadQRCode() {
             fetch('/api/tunnel')
                 .then(res => res.json())
@@ -90,16 +112,13 @@
                     const urlText = document.getElementById('tunnelUrl');
 
                     if (data.qr && data.url) {
-                        // 成功获取
                         img.src = data.qr;
-                        img.style.display = 'block'; // 确保图片显示
+                        img.style.display = 'block';
                         urlText.innerText = data.url;
                         urlText.style.color = '#666';
                     } else {
-                        // 尚未准备好，显示加载状态并重试
                         console.log('隧道正在初始化中...');
                         urlText.innerText = '正在建立安全通道...';
-                        // 2秒后重试
                         setTimeout(loadQRCode, 2000);
                     }
                 })
@@ -109,48 +128,46 @@
                 });
         }
 
-        function updateData() {
-            // 获取统计
-            fetch('/api/stats').then(res => res.json()).then(data => {
-                // 0. 报名总人数
-                document.getElementById('stat-total').innerText = data.total;
-                // 1. 已签到总数
-                document.getElementById('stat-checked').innerText = data.checkedIn;
-                // 2. 名单内签到
-                document.getElementById('stat-original').innerText = data.originalCheckedIn;
-                // 3. 现场新增
-                document.getElementById('stat-new').innerText = data.newCheckedIn;
-            });
+        // 渲染界面 (完全读取本地数据，不请求后端 /api/list)
+        function updateUI() {
+            const list = getLocalData();
+            
+            // 1. 计算统计
+            const checkedInList = list.filter(i => i.status === 'checked_in');
+            const newCheckedIn = checkedInList.filter(i => i.isNew || i.source === 'scan_new').length;
+            const originalCheckedIn = checkedInList.length - newCheckedIn;
+            const originalTotal = list.filter(i => !i.isNew).length;
 
-            // 获取列表
-            fetch('/api/list').then(res => res.json()).then(list => {
-                const container = document.getElementById('userList');
-                container.innerHTML = list.filter(i => i.status === 'checked_in').map(user => {
-                    const time = new Date(user.checkInTime).toLocaleTimeString();
-                    // 只要 isNew 为 true，或者 source 为 scan_new，都显示新标签
-                    const showNew = user.isNew || user.source === 'scan_new';
-                    const newTag = showNew ? '<span class="new-tag">新</span>' : '';
-                    return `
-                        <div class="user-card">
-                            <div class="avatar">${user.name[0]}</div>
-                            <div class="info">
-                                <div class="name">${user.name}${newTag}</div>
-                                <div class="phone">${user.phone}</div>
-                                <div class="time">${time} 签到</div>
-                            </div>
+            document.getElementById('stat-total').innerText = originalTotal;
+            document.getElementById('stat-checked').innerText = checkedInList.length;
+            document.getElementById('stat-original').innerText = originalCheckedIn;
+            document.getElementById('stat-new').innerText = newCheckedIn;
+
+            // 2. 渲染列表 (倒序)
+            const sorted = [...list].sort((a, b) => (b.checkInTime || 0) - (a.checkInTime || 0));
+            const container = document.getElementById('userList');
+            
+            // 仅显示已签到的
+            const displayList = sorted.filter(i => i.status === 'checked_in');
+            
+            container.innerHTML = displayList.map(user => {
+                const time = user.checkInTime ? new Date(user.checkInTime).toLocaleTimeString() : '';
+                const showNew = user.isNew || user.source === 'scan_new';
+                const newTag = showNew ? '<span class="new-tag">新</span>' : '';
+                return `
+                    <div class="user-card">
+                        <div class="avatar">${user.name[0]}</div>
+                        <div class="info">
+                            <div class="name">${user.name}${newTag}</div>
+                            <div class="phone">${user.phone}</div>
+                            <div class="time">${time} 签到</div>
                         </div>
-                    `;
-                }).join('');
-            });
+                    </div>
+                `;
+            }).join('');
         }
 
-        // 启动
-        loadQRCode();        // 首次加载
-        updateData();
-        // 轮询 (每3秒)
-        setInterval(updateData, 3000);
-        
-        // 文件操作
+        // 文件导入 (上传给后端解析 -> 拿到数据存本地)
         function uploadFile(input) {
             if (input.files && input.files[0]) {
                 const formData = new FormData();
@@ -159,22 +176,106 @@
                 fetch('/api/import', { method: 'POST', body: formData })
                     .then(res => res.json())
                     .then(data => {
-                        if (data.success) {
-                            alert(`导入成功！共 ${data.count} 条数据`);
-                            updateData();
+                        if (data.success && data.data) {
+                            // 拿到解析后的数据，覆盖本地
+                            // 也可以做合并逻辑，这里简化为覆盖
+                            saveLocalData(data.data);
+                            alert(`导入成功！共 ${data.count} 条数据 (已存入浏览器缓存)`);
                         } else {
-                            alert('导入失败: ' + data.error);
+                            alert('导入失败: ' + (data.error || '未知错误'));
                         }
                     })
-                    .catch(err => alert('网络错误'));
+                    .catch(e => alert('网络错误'));
                 
-                input.value = ''; // 清空以允许再次选择同文件
+                input.value = ''; 
             }
         }
         
+        // 导出数据 (前端直接生成 Excel，不麻烦后端了)
+        // 既然数据都在前端，用 SheetJS 前端库生成更方便？
+        // 算了，为了不引入新库，还是把数据发给后端生成吧，或者简单的 CSV
         function exportData() {
-            window.location.href = '/api/export';
+            // 简单版：前端生成 CSV
+            const list = getLocalData();
+            let csvContent = "\uFEFF姓名,手机号,状态,签到时间,是否新人\n";
+            list.forEach(row => {
+                const time = row.checkInTime ? new Date(row.checkInTime).toLocaleString() : '';
+                const status = row.status === 'checked_in' ? '已签到' : '未签到';
+                const isNew = row.isNew ? '是' : '否';
+                csvContent += `${row.name},${row.phone},${status},${time},${isNew}\n`;
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "签到数据.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
+
+        // 模拟：监听来自扫码页面的“签到成功”消息
+        // 因为扫码页面 (form.html) 和这个控制台页面 (index.html) 是分开的
+        // 它们通常不共享 Storage (如果是同源可以，Vercel 上是一样的)
+        // 为了实时同步，我们可以简单的轮询后端？
+        // 不行，后端不可靠。
+        
+        // === 关键策略：混合模式 ===
+        // 控制台页面 (index.html) 是“主”，数据在它这里。
+        // 扫码页面 (form.html) 提交数据给后端 -> 后端记录到内存 -> 控制台轮询后端获取“增量”。
+        
+        // 修正逻辑：
+        // 1. 基础名单在 index.html 本地。
+        // 2. 扫码签到时，后端内存肯定会有一份临时记录。
+        // 3. index.html 轮询后端 /api/list，把后端里状态为 checked_in 的人，
+        //    同步更新到本地 LocalStorage 里。
+        
+        setInterval(() => {
+            fetch('/api/list')
+                .then(res => res.json())
+                .then(remoteList => {
+                    const localList = getLocalData();
+                    let hasChange = false;
+
+                    // 遍历远程数据，同步到本地
+                    remoteList.forEach(remoteUser => {
+                        if (remoteUser.status === 'checked_in') {
+                            // 找本地匹配的
+                            let localUser = localList.find(u => u.phone === remoteUser.phone);
+                            
+                            if (localUser) {
+                                // 只有当本地还没签到时才更新
+                                if (localUser.status !== 'checked_in') {
+                                    localUser.status = 'checked_in';
+                                    localUser.checkInTime = remoteUser.checkInTime || Date.now();
+                                    hasChange = true;
+                                }
+                            } else {
+                                // 本地没有 -> 说明是现场新人
+                                localList.push(remoteUser);
+                                hasChange = true;
+                            }
+                        }
+                    });
+
+                    if (hasChange) {
+                        saveLocalData(localList); // 更新本地并刷新 UI
+                        console.log('同步了新的签到数据');
+                    }
+                })
+                .catch(e => console.log('Sync error (expected if server sleeping)'));
+                
+            // 无论是同步了还是没同步，都要刷新 UI 以显示时间变化
+            // 其实 updateUI 开销很小
+            // updateUI(); 
+        }, 3000);
+
+        // 启动
+        loadQRCode();
+        updateUI();
+
     </script>
 </body>
 </html>

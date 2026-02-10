@@ -347,13 +347,42 @@ app.post('/api/import', upload.single('file'), (req, res) => {
         writeDB(formatList); 
         
         // 清理临时文件
-        fs.unlinkSync(req.file.path);
+        try { fs.unlinkSync(req.file.path); } catch(e) {}
         
-        res.json({ success: true, count: formatList.length });
+        // 关键修改：返回完整数据给前端，让前端接管数据存储
+        res.json({ success: true, count: formatList.length, data: formatList });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: '解析失败: ' + err.message });
     }
+});
+
+// API: 同步签到状态 (前端发来 phone，后端只负责验证或记录，不强制查库)
+// 实际上，如果完全前端管理，这个接口甚至不需要查库，
+// 但为了保持逻辑完整性，我们还是更新一下内存（如果有的话）
+app.post('/api/sync_checkin', (req, res) => {
+    const { phone, name } = req.body;
+    const list = readDB();
+    const user = list.find(u => u.phone === phone);
+    
+    if (user) {
+        user.status = 'checked_in';
+        user.checkInTime = Date.now();
+        writeDB(list);
+    } else {
+        // 如果内存里没有（比如刚重启），就补录一个
+        // 因为前端才是 Truth，后端只是帮手
+        list.push({
+            name,
+            phone,
+            status: 'checked_in',
+            checkInTime: Date.now(),
+            source: 'sync'
+        });
+        writeDB(list);
+    }
+    
+    res.json({ success: true });
 });
 
 // API: 导出 Excel
