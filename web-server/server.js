@@ -13,22 +13,30 @@ const PORT = process.env.PORT || 3000;
 const isVercel = process.env.VERCEL === '1';
 const isPkg = typeof process.pkg !== 'undefined';
 
-// 路径配置：
-// Vercel Serverless Function 运行时，CWD 就是根目录。而 server.js 位于根目录。
-// public 文件夹也位于根目录。
-// 但是 vercel.json 的 includeFiles 是相对于 build 的。
-// 最稳妥的方式：在 Vercel 上，将 process.cwd() 加入 base
-const BASE_DIR = isPkg ? path.dirname(process.execPath) : (isVercel ? process.cwd() : __dirname);
-const PUBLIC_DIR = path.join(BASE_DIR, 'public');
+// 自动寻找 public 目录的函数
+function findPublicDir() {
+    const candidates = [
+        path.join(__dirname, 'public'), // 本地/常规部署
+        path.join(process.cwd(), 'public'), // Vercel 根目录
+        path.join(process.cwd(), 'web-server', 'public'), // Vercel 可能的子目录结构
+        path.join(__dirname, '..', 'public'), // 上级目录
+    ];
 
-// 调试路径 (部署时查看日志用)
+    for (const dir of candidates) {
+        if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+            console.log(`[Init] Found public dir at: ${dir}`);
+            return dir;
+        }
+    }
+    console.error('[Init] Public dir NOT found in candidates:', candidates);
+    return null;
+}
+
+const PUBLIC_DIR = findPublicDir() || path.join(__dirname, 'public'); // 找不到时回退默认
+const BASE_DIR = isPkg ? path.dirname(process.execPath) : path.dirname(PUBLIC_DIR);
+
 console.log('[DEBUG] Environment:', { isVercel, isPkg, PORT });
-console.log('[DEBUG] Paths:', { 
-    cwd: process.cwd(), 
-    __dirname, 
-    BASE_DIR, 
-    PUBLIC_DIR 
-});
+console.log('[DEBUG] Final Paths:', { cwd: process.cwd(), __dirname, PUBLIC_DIR });
 
 // Vercel 文件系统只读，只能写 /tmp
 // 注意：每次部署或实例重启，/tmp 都会清空 -> 符合“阅后即焚”的需求
@@ -41,7 +49,24 @@ app.use(express.static(PUBLIC_DIR));
 
 // 显式路由：访问根路径返回 index.html
 app.get('/', (req, res) => {
-    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+    const indexPath = path.join(PUBLIC_DIR, 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        // 调试模式：如果找不到 index.html，列出当前目录文件帮助排查
+        // 仅在 Vercel 部署且出问题时显示
+        const files = fs.existsSync(PUBLIC_DIR) ? fs.readdirSync(PUBLIC_DIR) : 'Public Dir Missing';
+        const cwdFiles = fs.readdirSync(process.cwd());
+        
+        res.status(404).send(`
+            <h1>Error: index.html not found</h1>
+            <p>Public Dir: ${PUBLIC_DIR}</p>
+            <p>Files in Public: ${JSON.stringify(files)}</p>
+            <p>Current Working Directory: ${process.cwd()}</p>
+            <p>Files in CWD: ${JSON.stringify(cwdFiles)}</p>
+            <p>__dirname: ${__dirname}</p>
+        `);
+    }
 });
 
 // 初始化数据库
