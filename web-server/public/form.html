@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>活动签到</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: -apple-system, sans-serif; background: #f7f8fa; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+        .container { background: white; padding: 30px 20px; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+        .title { font-size: 24px; font-weight: 800; color: #333; text-align: center; margin-bottom: 10px; }
+        .subtitle { font-size: 14px; color: #999; text-align: center; margin-bottom: 30px; }
+        
+        .form-group { margin-bottom: 20px; }
+        .label { font-size: 14px; color: #666; margin-bottom: 8px; display: block; font-weight: 600; }
+        .input { width: 100%; padding: 15px; font-size: 16px; border: 1px solid #eee; border-radius: 12px; box-sizing: border-box; background: #f9f9f9; outline: none; transition: all 0.3s; }
+        .input:focus { background: white; border-color: #07c160; }
+        
+        .btn { width: 100%; padding: 16px; font-size: 18px; font-weight: bold; color: white; background: linear-gradient(135deg, #07c160, #05a050); border: none; border-radius: 50px; margin-top: 20px; box-shadow: 0 8px 20px rgba(7,193,96,0.3); }
+        .btn:active { transform: scale(0.98); }
+        
+        .success-box { display: none; text-align: center; padding: 40px 0; }
+        .icon { width: 80px; height: 80px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container" id="formBox">
+        <div class="title">👋 欢迎参加活动</div>
+        <div class="subtitle">请填写信息完成签到</div>
+        
+        <div class="form-group">
+            <label class="label">真实姓名</label>
+            <input type="text" id="name" class="input" placeholder="请输入真实姓名">
+        </div>
+        
+        <div class="form-group">
+            <label class="label">手机号</label>
+            <input type="tel" id="phone" class="input" placeholder="请输入11位手机号" maxlength="11">
+        </div>
+        
+        <button class="btn" onclick="submit()">确认签到</button>
+    </div>
+
+    <div class="container success-box" id="successBox">
+        <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"><path d="M512 0C229.23 0 0 229.23 0 512s229.23 512 512 512 512-229.23 512-512S794.77 0 512 0z m244.65 375.49L464.09 720.08a42.42 42.42 0 0 1-31.52 14.28 42.42 42.42 0 0 1-32.09-14.85l-175.76-197.74a42.67 42.67 0 0 1 63.61-56.54l145.74 163.96 261.07-310.16a42.67 42.67 0 1 1 65.51 56.46z" fill="#07C160"></path></svg>
+        <div class="title">签到成功</div>
+        <div class="subtitle">您已完成签到，请入场</div>
+    </div>
+
+    <!-- 确认弹窗 -->
+    <div class="container" id="confirmBox" style="display:none; text-align: center;">
+        <div class="title" style="margin-bottom:20px;">🤔 确认身份</div>
+        <div class="subtitle" id="confirmMsg" style="text-align:left; line-height:1.6; color:#333;"></div>
+        
+        <div style="margin-top: 30px;">
+            <button class="btn" id="btnYes" style="background: #07c160; margin-bottom: 15px;">是的，这是我</button>
+            <button class="btn" id="btnNo" style="background: #f5f5f5; color: #666; font-weight:normal;">不是，我是新人</button>
+        </div>
+    </div>
+
+    <script>
+        var currentCandidates = [];
+
+        function submit(extraData) {
+            var name = document.getElementById('name').value.trim();
+            var phone = document.getElementById('phone').value.trim();
+            extraData = extraData || {};
+
+            if (!name || phone.length !== 11) {
+                alert('请填写完整的姓名和手机号');
+                return;
+            }
+
+            // ES5 合并对象
+            var payload = { name: name, phone: phone };
+            if (extraData.confirmNew) payload.confirmNew = true;
+            if (extraData.useExistingPhone) payload.useExistingPhone = extraData.useExistingPhone;
+
+            fetch('/api/checkin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    document.getElementById('formBox').style.display = 'none';
+                    document.getElementById('confirmBox').style.display = 'none';
+                    document.getElementById('successBox').style.display = 'block';
+                } else if (data.requiresConfirmation) {
+                    showConfirmation(data.candidates);
+                } else {
+                    alert('签到失败: ' + (data.error || '未知错误'));
+                }
+            })
+            .catch(function(err) { 
+                alert('网络错误，请重试'); 
+            });
+        }
+
+        function showConfirmation(candidates) {
+            currentCandidates = candidates;
+            var candidate = candidates[0];
+            
+            document.getElementById('formBox').style.display = 'none';
+            document.getElementById('confirmBox').style.display = 'block';
+            
+            // 简单的模板替换
+            var msg = '未找到手机号 <b>' + document.getElementById('phone').value + '</b><br>' +
+                      '但数据库中有极相似的记录：<br><br>' +
+                      '<div style="background:#f9f9f9; padding:15px; border-radius:8px; text-align:left;">' +
+                      '<div style="font-size:16px; font-weight:bold; margin-bottom:5px;">' + candidate.name + '</div>' +
+                      '<div style="color:#666;">手机：<span style="color:#07c160; font-family:monospace; font-weight:bold;">' + candidate.maskedPhone + '</span></div>' +
+                      '<div style="font-size:12px; color:#999; margin-top:5px;">(匹配原因: ' + (candidate.matchType || '相似') + ')</div>' +
+                      '</div>' +
+                      '<br>请确认这是您吗？';
+            
+            document.getElementById('confirmMsg').innerHTML = msg;
+
+            document.getElementById('btnYes').onclick = function() {
+                submit({ useExistingPhone: candidate.phone });
+            };
+            
+            document.getElementById('btnNo').onclick = function() {
+                submit({ confirmNew: true });
+            };
+        }
+    </script>
+</body>
+</html>

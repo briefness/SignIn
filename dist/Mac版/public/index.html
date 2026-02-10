@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>活动签到大屏</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; display: flex; height: 100vh; }
+        .sidebar { width: 350px; background: white; padding: 40px; display: flex; flex-direction: column; align-items: center; box-shadow: 2px 0 10px rgba(0,0,0,0.05); }
+        .main { flex: 1; padding: 40px; overflow-y: auto; }
+        
+        h1 { font-size: 24px; color: #333; margin-bottom: 30px; }
+        .qr-box { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 40px; text-align: center; }
+        .qr-img { width: 220px; height: 220px; display: block; }
+        .qr-text { margin-top: 15px; color: #666; font-size: 14px; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }
+        .stat-item { background: white; border-radius: 16px; padding: 25px 15px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.02); transition: transform 0.2s; }
+        .stat-item:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.05); }
+        .stat-num { font-size: 48px; font-weight: 800; color: #333; line-height: 1.2; margin-bottom: 5px; }
+        .stat-label { font-size: 15px; color: #888; font-weight: 500; }
+
+        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .list-title { font-size: 28px; font-weight: bold; color: #333; }
+        
+        .user-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
+        .user-card { background: white; padding: 20px; border-radius: 16px; display: flex; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.03); transition: all 0.3s; }
+        .user-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .avatar { width: 50px; height: 50px; background: #e8f8f0; color: #07c160; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; margin-right: 15px; }
+        .info { flex: 1; }
+        .name { font-size: 18px; font-weight: bold; color: #333; margin-bottom: 4px; }
+        .phone { font-size: 14px; color: #999; }
+        .time { font-size: 12px; color: #ccc; margin-top: 4px; }
+        .new-tag { background: #ffedea; color: #ff4d4f; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h1>🚀 活动签到控制台</h1>
+        <div class="qr-box">
+            <img id="qrImg" class="qr-img" src="" alt="加载中...">
+            <div class="qr-text">请扫描二维码签到</div>
+            <div class="qr-text" style="font-size: 12px; margin-top:5px; color:#999;" id="tunnelUrl"></div>
+        </div>
+        
+        <div class="stats-box">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-num" id="stat-total">0</div>
+                    <div class="stat-label">报名总人数</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-num" id="stat-checked" style="color: #07c160;">0</div>
+                    <div class="stat-label">已签到总数</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-num" id="stat-original" style="color: #07c160;">0</div>
+                    <div class="stat-label">名单内签到</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-num" id="stat-new" style="color: #ff4d4f;">0</div>
+                    <div class="stat-label">现场新增</div>
+                </div>
+            </div>
+            
+            <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <button onclick="document.getElementById('fileInput').click()" style="flex:1; padding:10px; border-radius:8px; border:1px solid #ccc; background:white; cursor:pointer;">📂 导入名单</button>
+                <button onclick="exportData()" style="flex:1; padding:10px; border-radius:8px; border:none; background:#07c160; color:white; cursor:pointer;">📥 导出数据</button>
+                <input type="file" id="fileInput" accept=".xlsx,.csv" style="display:none" onchange="uploadFile(this)">
+            </div>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="list-header">
+            <div class="list-title">实时动态</div>
+        </div>
+        <div class="user-list" id="userList">
+            <!-- 列表项 -->
+        </div>
+    </div>
+
+    <script>
+        // 轮询获取二维码
+        function loadQRCode() {
+            fetch('/api/tunnel')
+                .then(res => res.json())
+                .then(data => {
+                    const img = document.getElementById('qrImg');
+                    const urlText = document.getElementById('tunnelUrl');
+
+                    if (data.qr && data.url) {
+                        // 成功获取
+                        img.src = data.qr;
+                        img.style.display = 'block'; // 确保图片显示
+                        urlText.innerText = data.url;
+                        urlText.style.color = '#666';
+                    } else {
+                        // 尚未准备好，显示加载状态并重试
+                        console.log('隧道正在初始化中...');
+                        urlText.innerText = '正在建立安全通道...';
+                        // 2秒后重试
+                        setTimeout(loadQRCode, 2000);
+                    }
+                })
+                .catch(err => {
+                    console.error('获取二维码失败', err);
+                    setTimeout(loadQRCode, 3000);
+                });
+        }
+
+        function updateData() {
+            // 获取统计
+            fetch('/api/stats').then(res => res.json()).then(data => {
+                // 0. 报名总人数
+                document.getElementById('stat-total').innerText = data.total;
+                // 1. 已签到总数
+                document.getElementById('stat-checked').innerText = data.checkedIn;
+                // 2. 名单内签到
+                document.getElementById('stat-original').innerText = data.originalCheckedIn;
+                // 3. 现场新增
+                document.getElementById('stat-new').innerText = data.newCheckedIn;
+            });
+
+            // 获取列表
+            fetch('/api/list').then(res => res.json()).then(list => {
+                const container = document.getElementById('userList');
+                container.innerHTML = list.filter(i => i.status === 'checked_in').map(user => {
+                    const time = new Date(user.checkInTime).toLocaleTimeString();
+                    // 只要 isNew 为 true，或者 source 为 scan_new，都显示新标签
+                    const showNew = user.isNew || user.source === 'scan_new';
+                    const newTag = showNew ? '<span class="new-tag">新</span>' : '';
+                    return `
+                        <div class="user-card">
+                            <div class="avatar">${user.name[0]}</div>
+                            <div class="info">
+                                <div class="name">${user.name}${newTag}</div>
+                                <div class="phone">${user.phone}</div>
+                                <div class="time">${time} 签到</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            });
+        }
+
+        // 启动
+        loadQRCode();        // 首次加载
+        updateData();
+        // 轮询 (每3秒)
+        setInterval(updateData, 3000);
+        
+        // 文件操作
+        function uploadFile(input) {
+            if (input.files && input.files[0]) {
+                const formData = new FormData();
+                formData.append('file', input.files[0]);
+                
+                fetch('/api/import', { method: 'POST', body: formData })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert(`导入成功！共 ${data.count} 条数据`);
+                            updateData();
+                        } else {
+                            alert('导入失败: ' + data.error);
+                        }
+                    })
+                    .catch(err => alert('网络错误'));
+                
+                input.value = ''; // 清空以允许再次选择同文件
+            }
+        }
+        
+        function exportData() {
+            window.location.href = '/api/export';
+        }
+    </script>
+</body>
+</html>
